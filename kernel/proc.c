@@ -1,10 +1,13 @@
 #include "types.h"
+
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+
+int class_tickets[4] = {6, 3, 2, 1};
 
 struct cpu cpus[NCPU];
 
@@ -41,6 +44,14 @@ proc_mapstacks(pagetable_t kpgtbl)
     uint64 va = KSTACK((int) (p - proc));
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
+}
+
+unsigned int rand_state = 1;
+unsigned int
+rand(void)
+{
+    rand_state = rand_state * 1103515245 + 12345;
+    return (unsigned int)(rand_state / 65536) % 32768;
 }
 
 // initialize the proc table.
@@ -124,6 +135,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority_class = 3;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -299,6 +311,10 @@ kfork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
+
+  printf("PID %d class %d\n", np->pid, np->priority_class);
+
+  np->priority_class = p->priority_class;
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -421,43 +437,125 @@ kwait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// void
+// scheduler(void)
+// {
+//   struct proc *p;
+//   struct cpu *c = mycpu();
+
+//   c->proc = 0;
+//   for(;;){
+//     // The most recent process to run may have had interrupts
+//     // turned off; enable them to avoid a deadlock if all
+//     // processes are waiting. Then turn them back off
+//     // to avoid a possible race between an interrupt
+//     // and wfi.
+//     intr_on();
+//     intr_off();
+
+//     int found = 0;
+//     for(p = proc; p < &proc[NPROC]; p++) {
+//       acquire(&p->lock);
+//       if(p->state == RUNNABLE) {
+//         // Switch to chosen process.  It is the process's job
+//         // to release its lock and then reacquire it
+//         // before jumping back to us.
+//         p->state = RUNNING;
+//         c->proc = p;
+//         swtch(&c->context, &p->context);
+
+//         // Process is done running for now.
+//         // It should have changed its p->state before coming back.
+//         c->proc = 0;
+//         found = 1;
+//       }
+//       release(&p->lock);
+//     }
+//     if(found == 0) {
+//       // nothing to run; stop running on this core until an interrupt.
+//       asm volatile("wfi");
+//     }
+//   }
+// }
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
   c->proc = 0;
+
+  // Guarda o índice do último processo executado para CADA classe
+  static int last_idx[4] = {0, 0, 0, 0};
+
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
+    // O xv6 precisa ligar e desligar interrupções aqui para evitar deadlocks
     intr_on();
     intr_off();
 
-    int found = 0;
+    int runnable[4] = {0,0,0,0};
+    int total = 0;
+
+    // 1. Mapear quais classes estão ativas
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        runnable[p->priority_class] = 1;
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+
+    // 2. Somar os bilhetes das classes ativas
+    for(int i = 0; i < 4; i++) {
+      if(runnable[i]) {
+        total += class_tickets[i];
+      }
+    }
+
+    // 3. Se ninguém quer a CPU, dorme até a próxima interrupção (Evita fritar a CPU)
+    if(total == 0) {
       asm volatile("wfi");
+      continue;
+    }
+
+    // 4. O seu sorteio (Loteria) - Mantido intacto!
+    int winner = rand() % total;
+    int chosen = -1;
+    int sum = 0;
+
+    for(int i = 0; i < 4; i++) {
+      if(runnable[i]) {
+        sum += class_tickets[i];
+        if(winner < sum) {
+          chosen = i;
+          break;
+        }
+      }
+    }
+
+    // 5. Round Robin verdadeiro
+    int start = last_idx[chosen]; // Pega de onde parou na última vez
+    
+    for(int i = 0; i < NPROC; i++) {
+      // Começa a busca do processo seguinte ao último executado
+      int idx = (start + i + 1) % NPROC; 
+      p = &proc[idx];
+
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && p->priority_class == chosen) {
+        
+        last_idx[chosen] = idx; // Salva esse índice para a próxima vez que a classe ganhar
+
+        p->state = RUNNING;
+        c->proc = p;
+
+        swtch(&c->context, &p->context);
+
+        c->proc = 0;
+        
+        release(&p->lock);
+        break; // Sai do laço for para forçar um NOVO sorteio
+      }
+      release(&p->lock);
     }
   }
 }
@@ -586,6 +684,25 @@ wakeup(void *chan)
   }
 }
 
+int
+setpriority(int pid, int priority)
+{
+    struct proc *p;
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        
+        if(p->pid == pid) {
+            p->priority_class = priority;
+            release(&p->lock);
+            return 0;
+        }
+        
+        release(&p->lock);
+    }
+
+    return -1;
+}
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).

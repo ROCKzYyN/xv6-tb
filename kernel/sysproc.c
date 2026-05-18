@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+extern struct proc proc[NPROC];
 
 uint64
 sys_exit(void)
@@ -106,4 +107,21 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+uint64
+sys_setpriority(void)
+{
+    int pid;
+    int priority;
+
+    // Em RISC-V, o argint é void, então chamamos direto:
+    argint(0, &pid);
+    argint(1, &priority);
+
+    // Trava de segurança para não aceitar classes inválidas
+    if(priority < 0 || priority > 3)
+        return -1;
+
+    // Chama a função real que vai fazer o trabalho sujo (lá no proc.c)
+    return setpriority(pid, priority); 
 }
