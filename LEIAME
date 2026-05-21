@@ -1,18 +1,11 @@
-Instruções de Compilação e Execução
-
-Para garantir que não haja resquícios de compilações anteriores (arquivos objeto) 
-que possam causar conflito, execute a limpeza do diretório antes de compilar:
-Bash
+Para evitar conflitos com arquivos de compilações anteriores, limpe o diretório antes de começar:
 
 make clean
 
-Em seguida, inicie o ambiente xv6 através do emulador QEMU:
-Bash
+Depois já podemos iniciar o xv6 no emulador QEMU usando:
 
 make qemu
 
-Quando o sistema inicializar e apresentar o terminal (prompt $), digite o comando do experimento:
-Bash
+Quando a inicialização terminar, basta rodar o comando:
 
 testsched
-
