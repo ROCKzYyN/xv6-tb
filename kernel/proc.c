@@ -484,18 +484,18 @@ scheduler(void)
   struct cpu *c = mycpu();
   c->proc = 0;
 
-  // Guarda o índice do último processo executado para CADA classe
+  // índice do ultimo processo executado para cada classe
   static int last_idx[4] = {0, 0, 0, 0};
 
   for(;;){
-    // O xv6 precisa ligar e desligar interrupções aqui para evitar deadlocks
+    // liga e desliga as interrupções para evitar deadlocks
     intr_on();
     intr_off();
 
     int runnable[4] = {0,0,0,0};
     int total = 0;
 
-    // 1. Mapear quais classes estão ativas
+    // mapeia quais classes tem processos runnables
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
@@ -504,20 +504,20 @@ scheduler(void)
       release(&p->lock);
     }
 
-    // 2. Somar os bilhetes das classes ativas
+    // soma os bilhetes das classes que tem processos runnables
     for(int i = 0; i < 4; i++) {
       if(runnable[i]) {
         total += class_tickets[i];
       }
     }
 
-    // 3. Se ninguém quer a CPU, dorme até a próxima interrupção (Evita fritar a CPU)
+    // se ninguém quer rodar, dorme a cpu
     if(total == 0) {
       asm volatile("wfi");
       continue;
     }
 
-    // 4. O seu sorteio (Loteria) - Mantido intacto!
+    // sorteia uma classe
     int winner = rand() % total;
     int chosen = -1;
     int sum = 0;
@@ -532,18 +532,18 @@ scheduler(void)
       }
     }
 
-    // 5. Round Robin verdadeiro
-    int start = last_idx[chosen]; // Pega de onde parou na última vez
+    // round robin dentro da classe escolhida
+    int start = last_idx[chosen]; // pega de onde parou da última vez
     
     for(int i = 0; i < NPROC; i++) {
-      // Começa a busca do processo seguinte ao último executado
+      // começa a busca do próximo processo da classe escolhida a partir do índice salvo da última vez
       int idx = (start + i + 1) % NPROC; 
       p = &proc[idx];
 
       acquire(&p->lock);
       if(p->state == RUNNABLE && p->priority_class == chosen) {
         
-        last_idx[chosen] = idx; // Salva esse índice para a próxima vez que a classe ganhar
+        last_idx[chosen] = idx; //salva o índice do processo escolhido para a próxima vez
 
         p->state = RUNNING;
         c->proc = p;
@@ -553,7 +553,7 @@ scheduler(void)
         c->proc = 0;
         
         release(&p->lock);
-        break; // Sai do laço for para forçar um NOVO sorteio
+        break; // sai do loop para escolher o próximo processo a ser executado, já que um processo da classe escolhida foi encontrado e executado
       }
       release(&p->lock);
     }
