@@ -1,7 +1,7 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
-// Função para consumir CPU sem bloquear o processo
+// consumir cpu
 void
 delay()
 {
@@ -12,24 +12,24 @@ delay()
 void
 worker(char *name, int priority)
 {
-    // Define a prioridade deste processo
+    // define a prioridade do processo
     setpriority(getpid(), priority);
 
     int progress = 0;
     
-    // Roda 100 "ciclos pesados" de CPU
+    // simula um trabalho pesado, consumindo CPU e imprimindo o progresso
     for(int i = 0; i < 100; i++) {
         delay();
         progress++;
         
-        // Imprime apenas a cada 10 ciclos para não sobrecarregar o console do xv6
+        // imrpime apenas de 10 em 10 ciclos
         if(progress % 10 == 0) {
             printf("[%s] (Classe %d) concluido: %d%%\n", name, priority, progress);
         }
     }
     
     printf(">>> %s TERMINOU! <<<\n", name);
-    exit(0); // Filho morre ao terminar
+    exit(0); // mata o filho
 }
 
 int
@@ -39,20 +39,20 @@ main()
     
     printf("Iniciando Experimento da Loteria (T1)...\n");
 
-    // Cria os 4 processos filhos em um loop para o código ficar mais limpo
+    // cria 4 processos filhos cada um com uma classe diferente
     for(int i = 0; i < 4; i++) {
         pid = fork();
         
         if(pid == 0) {
-            // Filho
+            // filho
             char name[3] = "P0";
-            name[1] += i; // Transforma "P0" em "P1", "P2", "P3" baseado no i
+            name[1] += i; // gera os nomes P0, P1, P2, P3
             
-            worker(name, i); // Chama o worker passando o nome e a classe de prioridade
+            worker(name, i); // chama o worker
         }
     }
 
-    // O processo Pai não faz processamento pesado, ele apenas espera os 4 filhos terminarem
+    // pai espera os filhos terminarem
     for(int i = 0; i < 4; i++) {
         wait(0);
     }
