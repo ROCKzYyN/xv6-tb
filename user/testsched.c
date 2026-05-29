@@ -1,62 +1,80 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
-// consumir cpu
-void
-delay()
-{
-    volatile int i;
-    for(i = 0; i < 5000000; i++); // Dependendo da velocidade do seu PC, pode aumentar ou diminuir
-}
-
-void
-worker(char *name, int priority)
-{
-    // define a prioridade do processo
-    setpriority(getpid(), priority);
-
-    int progress = 0;
-    
-    // simula um trabalho pesado, consumindo CPU e imprimindo o progresso
-    for(int i = 0; i < 100; i++) {
-        delay();
-        progress++;
-        
-        // imrpime apenas de 10 em 10 ciclos
-        if(progress % 10 == 0) {
-            printf("[%s] (Classe %d) concluido: %d%%\n", name, priority, progress);
-        }
-    }
-    
-    printf(">>> %s TERMINOU! <<<\n", name);
-    exit(0); // mata o filho
-}
-
-int
-main()
-{
+// 1. Criamos uma estrutura para enviar pacote de dados pelo pipe
+struct proc_info {
     int pid;
-    
-    printf("Iniciando Experimento da Loteria (T1)...\n");
+    int classe;
+};
 
-    // cria 4 processos filhos cada um com uma classe diferente
-    for(int i = 0; i < 4; i++) {
-        pid = fork();
+// Consumir CPU
+void delay() {
+    volatile int i;
+    for(i = 0; i < 5000000; i++);
+}
+
+int main() {
+    int pids[8];
+    int fd[2];
+    
+    if(pipe(fd) < 0) {
+        printf("Erro ao criar o pipe\n");
+        exit(1);
+    }
+
+    int classes[8] = {0, 0, 0, 1, 1, 2, 2, 3}; 
+
+    printf("\n===== INICIANDO TESTE =====\n\n");
+
+    for(int i = 0; i < 8; i++) {
+        pids[i] = fork();
         
-        if(pid == 0) {
-            // filho
-            char name[3] = "P0";
-            name[1] += i; // gera os nomes P0, P1, P2, P3
+        if(pids[i] == 0) {
+            // Código do Filho
+            setpriority(getpid(), classes[i]);
             
-            worker(name, i); // chama o worker
+            // 2. Prepara a estrutura com os dados deste processo
+            struct proc_info info;
+            info.pid = getpid();
+            info.classe = classes[i];
+
+            while(1) {
+                delay(); 
+                
+                // Envia a estrutura completa (PID e Classe) pelo pipe
+                write(fd[1], &info, sizeof(struct proc_info));
+            }
         }
     }
 
-    // pai espera os filhos terminarem
-    for(int i = 0; i < 4; i++) {
-        wait(0);
+    // Código do Pai
+    int count[4] = {0, 0, 0, 0};
+    struct proc_info lido;
+
+    // 3. O pai lê a estrutura do pipe
+    for(int i = 0; i < 150; i++) {
+        read(fd[0], &lido, sizeof(struct proc_info));
+        
+        if(lido.classe >= 0 && lido.classe <= 3) {
+            count[lido.classe]++;
+            // Agora mostramos o PID e a Classe juntos
+            printf("Sorteio %d: PID=%d | Classe=%d\n", i + 1, lido.pid, lido.classe);
+        }
     }
 
-    printf("Todos os processos finalizaram. Teste concluido.\n");
+    // Encerra os filhos
+    for(int i = 0; i < 8; i++) {
+        kill(pids[i]);
+        wait(0); 
+    }
+
+    // Exibe o placar finalt
+    printf("\n===== RESULTADO FINAL==================\n");
+    printf("Classe 0: %d vezes\n", count[0]);
+    printf("Classe 1: %d vezes\n", count[1]);
+    printf("Classe 2: %d vezes\n", count[2]);
+    printf("Classe 3: %d vezes\n", count[3]);
+    printf("=========================================\n\n");
+
     exit(0);
 }
