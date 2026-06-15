@@ -123,5 +123,22 @@ sys_setpriority(void)
         return -1;
 
     // call a funçção setpriority do kernel no proc.c
-    return setpriority(pid, priority); 
+    return setpriority(pid, priority);
+}
+
+uint64
+sys_settickets(void)
+{
+    int pid;
+    int tickets;
+
+    argint(0, &pid);
+    argint(1, &tickets);
+
+    // número de bilhetes precisa ser positivo
+    if(tickets < 1)
+        return -1;
+
+    // chama a função settickets do kernel em proc.c
+    return settickets(pid, tickets);
 }
