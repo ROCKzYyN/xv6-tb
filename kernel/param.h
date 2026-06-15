@@ -13,3 +13,7 @@
 #define MAXPATH      128   // maximum file path name
 #define USERSTACK    1     // user stack pages
 
+// Escalonamento por stride (passos largos)
+#define STRIDE1         10000 // constante usada no passo: stride = STRIDE1 / tickets
+#define DEFAULT_TICKETS     8 // número de bilhetes padrão de um processo
+

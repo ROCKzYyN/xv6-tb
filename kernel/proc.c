@@ -137,6 +137,11 @@ found:
   p->state = USED;
   p->priority_class = 3;
 
+  // Stride scheduling: todo processo começa com bilhetes padrão e passada 0.
+  p->tickets = DEFAULT_TICKETS;
+  p->stride = STRIDE1 / p->tickets;
+  p->pass = 0;
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -315,6 +320,12 @@ kfork(void)
   printf("PID %d class %d\n", np->pid, np->priority_class);
 
   np->priority_class = p->priority_class;
+
+  // Stride: o filho herda os bilhetes do pai, mas começa com passada zero.
+  np->tickets = p->tickets;
+  np->stride = p->stride;
+  np->pass = 0;
+
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -484,79 +495,54 @@ scheduler(void)
   struct cpu *c = mycpu();
   c->proc = 0;
 
-  // índice do ultimo processo executado para cada classe
-  static int last_idx[4] = {0, 0, 0, 0};
-
   for(;;){
     // liga e desliga as interrupções para evitar deadlocks
     intr_on();
     intr_off();
 
-    int runnable[4] = {0,0,0,0};
-    int total = 0;
+    // 1ª passada: encontra o processo RUNNABLE com a menor passada (pass).
+    // Empate: escolhe o de maior PID (critério de desempate da especificação).
+    struct proc *chosen = 0;
+    int min_pass = 0;
+    int min_pid = -1;
 
-    // mapeia quais classes tem processos runnables
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        runnable[p->priority_class] = 1;
+        if(chosen == 0 ||
+           p->pass < min_pass ||
+           (p->pass == min_pass && p->pid > min_pid)) {
+          chosen = p;
+          min_pass = p->pass;
+          min_pid = p->pid;
+        }
       }
       release(&p->lock);
     }
 
-    // soma os bilhetes das classes que tem processos runnables
-    for(int i = 0; i < 4; i++) {
-      if(runnable[i]) {
-        total += class_tickets[i];
-      }
-    }
-
-    // se ninguém quer rodar, dorme a cpu
-    if(total == 0) {
+    // Ninguém pronto para rodar: dorme a CPU até a próxima interrupção.
+    if(chosen == 0) {
       asm volatile("wfi");
       continue;
     }
 
-    // sorteia uma classe
-    int winner = rand() % total;
-    int chosen = -1;
-    int sum = 0;
+    // 2ª passada: reconfirma o estado do escolhido (pode ter mudado depois que
+    // soltamos o lock acima, inclusive por outra CPU). Só roda se ainda estiver
+    // RUNNABLE.
+    acquire(&chosen->lock);
+    if(chosen->state == RUNNABLE) {
+      // Após selecionado, incrementa a passada com o valor do passo.
+      chosen->pass += chosen->stride;
 
-    for(int i = 0; i < 4; i++) {
-      if(runnable[i]) {
-        sum += class_tickets[i];
-        if(winner < sum) {
-          chosen = i;
-          break;
-        }
-      }
+      chosen->state = RUNNING;
+      c->proc = chosen;
+
+      swtch(&c->context, &chosen->context);
+
+      // O processo terminou de rodar por agora e devolveu o controle.
+      c->proc = 0;
     }
-
-    // round robin dentro da classe escolhida
-    int start = last_idx[chosen]; // pega de onde parou da última vez
-    
-    for(int i = 0; i < NPROC; i++) {
-      // começa a busca do próximo processo da classe escolhida a partir do índice salvo da última vez
-      int idx = (start + i + 1) % NPROC; 
-      p = &proc[idx];
-
-      acquire(&p->lock);
-      if(p->state == RUNNABLE && p->priority_class == chosen) {
-        
-        last_idx[chosen] = idx; //salva o índice do processo escolhido para a próxima vez
-
-        p->state = RUNNING;
-        c->proc = p;
-
-        swtch(&c->context, &p->context);
-
-        c->proc = 0;
-        
-        release(&p->lock);
-        break; // sai do loop para escolher o próximo processo a ser executado, já que um processo da classe escolhida foi encontrado e executado
-      }
-      release(&p->lock);
-    }
+    release(&chosen->lock);
   }
 }
 
@@ -698,6 +684,31 @@ setpriority(int pid, int priority)
             return 0;
         }
         
+        release(&p->lock);
+    }
+
+    return -1;
+}
+
+// Define o número de bilhetes do processo de PID 'pid' e recalcula o seu passo
+// (stride = STRIDE1 / tickets). Retorna 0 em sucesso, -1 se o pid não existir.
+int
+settickets(int pid, int tickets)
+{
+    struct proc *p;
+
+    // Número de bilhetes precisa ser positivo (evita divisão por zero).
+    if(tickets < 1)
+        return -1;
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->pid == pid) {
+            p->tickets = tickets;
+            p->stride = STRIDE1 / tickets;
+            release(&p->lock);
+            return 0;
+        }
         release(&p->lock);
     }
 

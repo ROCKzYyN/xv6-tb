@@ -49,3 +49,4 @@ void* malloc(uint);
 void free(void*);
 
 int setpriority(int, int );
+int settickets(int, int );

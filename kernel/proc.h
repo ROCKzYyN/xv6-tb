@@ -94,6 +94,12 @@ struct proc {
   int pid;                     // Process ID
 
   int priority_class;
+
+  // Escalonamento por stride (p->lock deve estar retido):
+  int tickets;                 // número de bilhetes do processo
+  int stride;                  // passo = STRIDE1 / tickets
+  int pass;                    // passada acumulada (menor passada é escolhida)
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 

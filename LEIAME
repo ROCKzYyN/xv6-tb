@@ -1,11 +1,71 @@
-Para evitar conflitos com arquivos de compilações anteriores, limpe o diretório antes de começar:
+ESCALONADORES DE PROCESSOS NO XV6
+=================================
 
-make clean
+Este projeto implementa escalonadores de processos alternativos no xv6:
 
-Depois já podemos iniciar o xv6 no emulador QEMU usando:
+  T1 - Escalonamento por Loteria + Round Robin (por classes de prioridade)
+  T2 - Escalonamento por Stride (passos largos)
 
-make qemu
+------------------------------------------------------------------
+COMPILANDO E EXECUTANDO
+------------------------------------------------------------------
 
-Quando a inicialização terminar, basta rodar o comando:
+Para evitar conflitos com arquivos de compilações anteriores, limpe o
+diretório antes de começar:
 
-testsched
+  make clean
+
+Depois inicie o xv6 no emulador QEMU. Para o escalonador por stride, use
+UMA única CPU (veja a observação mais abaixo):
+
+  make qemu CPUS=1
+
+Quando a inicialização terminar, rode o teste desejado no shell do xv6:
+
+  testsched     (teste do T1 - loteria por classes)
+  teststride    (teste do T2 - stride por bilhetes)
+
+------------------------------------------------------------------
+T2 - ESCALONAMENTO POR STRIDE
+------------------------------------------------------------------
+
+Cada processo recebe um número fixo de bilhetes (tickets). O "passo"
+(stride) do processo é calculado como STRIDE1 / tickets, onde STRIDE1 é
+uma constante (10000). Cada processo mantém uma "passada" (pass) que
+começa em zero. A cada escalonamento, o escalonador seleciona o processo
+pronto com a MENOR passada (desempate: maior PID) e, ao selecioná-lo,
+soma o passo à sua passada. Assim, processos com mais bilhetes têm passo
+menor, avançam a passada mais devagar e são escolhidos com mais
+frequência, recebendo uma fração da CPU proporcional aos seus bilhetes.
+
+Chamada de sistema adicionada:
+
+  int settickets(int pid, int tickets);
+
+Define o número de bilhetes de um processo (tickets >= 1) e recalcula o
+seu passo. Retorna 0 em sucesso e -1 se o pid não existir ou os bilhetes
+forem inválidos.
+
+O teste user/teststride.c cria 3 processos com 100, 50 e 250 bilhetes
+(o exemplo A, B, C da especificação) e mede a fatia de CPU de cada um.
+A proporção esperada é 100:50:250 (2:1:5), ou seja, aproximadamente
+25%, 12,5% e 62,5%.
+
+OBSERVAÇÃO IMPORTANTE (CPUS=1):
+Para observar a proporção dos bilhetes é preciso haver disputa por CPU,
+isto é, mais processos prontos do que CPUs disponíveis. Com várias CPUs
+e poucos processos, cada filho roda em um núcleo diferente em paralelo e
+todos recebem fatias parecidas, escondendo o efeito dos bilhetes. Por
+isso execute o teste do stride com "make qemu CPUS=1".
+
+------------------------------------------------------------------
+ARQUIVOS PRINCIPAIS ALTERADOS (T2)
+------------------------------------------------------------------
+
+  kernel/proc.c      - novo scheduler() por stride e função settickets()
+  kernel/proc.h      - campos tickets, stride e pass no struct proc
+  kernel/param.h     - constantes STRIDE1 e DEFAULT_TICKETS
+  kernel/sysproc.c   - sys_settickets()
+  kernel/syscall.[ch], user/usys.pl, user/user.h, kernel/defs.h
+                     - registro da chamada de sistema settickets
+  user/teststride.c  - programa de teste do escalonador por stride
