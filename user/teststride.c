@@ -24,6 +24,7 @@ struct proc_info {
     int pid;
     int idx;        // índice do filho (0..NCHILD-1)
     int tickets;
+    int padding;
 };
 
 // Consome CPU para que o filho gaste uma fatia de tempo antes de reportar.

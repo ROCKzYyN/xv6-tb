@@ -69,3 +69,4 @@ ARQUIVOS PRINCIPAIS ALTERADOS (T2)
   kernel/syscall.[ch], user/usys.pl, user/user.h, kernel/defs.h
                      - registro da chamada de sistema settickets
   user/teststride.c  - programa de teste do escalonador por stride
+  user/teststridetm.c- programa de teste usando clock da cpu para o escalonador stride
